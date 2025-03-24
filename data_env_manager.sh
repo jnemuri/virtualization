@@ -133,4 +133,4 @@ case $option in
     2) uninstall_data_env ;;
     3) echo "Exiting..."; exit 0 ;;
     *) echo "Invalid option. Exiting..." ;;
-esac
+esacj
