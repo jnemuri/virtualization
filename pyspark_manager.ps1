@@ -1,96 +1,98 @@
-# PowerShell Script for Windows to Install and Uninstall PySpark Environment
+# PowerShell Script: Install/Uninstall PySpark Environment on Windows
 
-# Function to check if a command exists
 function Command-Exists {
     param([string]$command)
-    $oldPref = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
-    $exists = [bool](Get-Command $command -ErrorAction SilentlyContinue)
-    $ErrorActionPreference = $oldPref
-    return $exists
+    return [bool](Get-Command $command -ErrorAction SilentlyContinue)
 }
 
 function Install-PySpark {
-    Write-Host "Installing PySpark Environment..."
+    Write-Host "`n==> Installing PySpark Environment..." -ForegroundColor Cyan
 
-    # Install Python if not found
-    if (-Not (Command-Exists python)) {
-        Write-Host "Installing Python..."
+    # Install Python if missing
+    if (-not (Command-Exists "python")) {
+        Write-Host "Installing Python via winget..."
         winget install --silent --accept-package-agreements --accept-source-agreements Python.Python.3
+        Start-Sleep -Seconds 10
     } else {
-        Write-Host "Python is already installed."
+        Write-Host "✔ Python is already installed."
     }
 
-    # Install Apache Spark
-    $sparkInstallPath = "C:\spark"
-    if (-Not (Test-Path $sparkInstallPath)) {
-        Write-Host "Downloading and Installing Apache Spark..."
-        Invoke-WebRequest -Uri "https://dlcdn.apache.org/spark/spark-3.4.1/spark-3.4.1-bin-hadoop3.tgz" -OutFile "spark.tgz"
+    # Install Apache Spark manually if missing
+    $sparkPath = "C:\spark"
+    $sparkVersion = "3.4.1"
+    $sparkArchive = "spark-$sparkVersion-bin-hadoop3"
+    $downloadUrl = "https://dlcdn.apache.org/spark/spark-$sparkVersion/$sparkArchive.tgz"
+
+    if (-not (Test-Path $sparkPath)) {
+        Write-Host "Downloading Apache Spark $sparkVersion..."
+        Invoke-WebRequest -Uri $downloadUrl -OutFile "spark.tgz"
+
+        Write-Host "Extracting Spark archive..."
         tar -xvf "spark.tgz" -C "C:\"
-        Rename-Item "C:\spark-3.4.1-bin-hadoop3" $sparkInstallPath
+        Rename-Item -Path "C:\$sparkArchive" -NewName "spark"
         Remove-Item "spark.tgz"
     } else {
-        Write-Host "Apache Spark is already installed."
+        Write-Host "✔ Apache Spark is already installed."
     }
 
-    # Set Environment Variables
-    [System.Environment]::SetEnvironmentVariable("SPARK_HOME", $sparkInstallPath, "Machine")
-    [System.Environment]::SetEnvironmentVariable("PATH", "$env:PATH;$sparkInstallPath\bin", "Machine")
-    [System.Environment]::SetEnvironmentVariable("PYSPARK_PYTHON", "python", "Machine")
+    # Set environment variables
+    [Environment]::SetEnvironmentVariable("SPARK_HOME", $sparkPath, "Machine")
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    if ($currentPath -notlike "*$sparkPath*") {
+        [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$sparkPath\bin", "Machine")
+    }
+    [Environment]::SetEnvironmentVariable("PYSPARK_PYTHON", "python", "Machine")
 
-    # Set up virtual environment
-    if (-Not (Test-Path "pyspark_env")) {
+    # Create virtual environment if needed
+    if (-not (Test-Path "pyspark_env")) {
         Write-Host "Creating Python virtual environment..."
         python -m venv pyspark_env
     }
 
-    # Activate virtual environment
-    Write-Host "Activating virtual environment..."
-    .\pyspark_env\Scripts\Activate
+    # Manual reminder for activation
+    Write-Host "`n📌 Manual Activation Required:"
+    Write-Host "`t.\pyspark_env\Scripts\Activate.ps1"
+    Write-Host "`nAfter activation, run:"
+    Write-Host "`tpip install --upgrade pip"
+    Write-Host "`tpip install pyspark jupyter pandas numpy"
 
-    # Ensure PySpark is installed inside the virtual environment
-    $pyspark_installed = pip list | Select-String "pyspark"
-    if (-not $pyspark_installed) {
-        Write-Host "Installing PySpark..."
-        pip install pyspark
-    } else {
-        Write-Host "PySpark is already installed."
-    }
-
-    deactivate
-    Write-Host "Installation complete!"
+    Write-Host "`n✅ Installation setup complete. Restart PowerShell and activate your environment to begin." -ForegroundColor Green
 }
 
 function Uninstall-PySpark {
-    Write-Host "Uninstalling PySpark and dependencies..."
+    Write-Host "`n==> Uninstalling PySpark Environment..." -ForegroundColor Yellow
 
-    # Remove the virtual environment
+    # Remove virtual env
     if (Test-Path "pyspark_env") {
         Remove-Item -Recurse -Force "pyspark_env"
-        Write-Host "Virtual environment removed."
+        Write-Host "✔ Virtual environment removed."
     }
 
-    # Remove Spark
-    $sparkInstallPath = "C:\spark"
-    if (Test-Path $sparkInstallPath) {
-        Remove-Item -Recurse -Force $sparkInstallPath
-        Write-Host "Apache Spark removed."
+    # Remove Spark folder
+    $sparkPath = "C:\spark"
+    if (Test-Path $sparkPath) {
+        Remove-Item -Recurse -Force $sparkPath
+        Write-Host "✔ Apache Spark directory removed."
     }
 
-    Write-Host "Uninstallation complete!"
+    Write-Host "ℹ️ Environment variables remain (you may want to remove SPARK_HOME manually if needed)."
+    Write-Host "🧹 Uninstallation complete." -ForegroundColor Green
 }
 
 # Menu System
-Write-Host "PySpark Environment Manager"
+Write-Host "`n=============================="
+Write-Host " PySpark Environment Manager"
+Write-Host "=============================="
 Write-Host "1) Install PySpark Environment"
 Write-Host "2) Uninstall PySpark Environment"
 Write-Host "3) Exit"
 
-$option = Read-Host "Choose an option (1-3)"
+$choice = Read-Host "Select an option (1-3)"
 
-switch ($option) {
+switch ($choice) {
     "1" { Install-PySpark }
     "2" { Uninstall-PySpark }
     "3" { Write-Host "Exiting..."; exit }
-    default { Write-Host "Invalid option. Exiting..." }
+    default { Write-Host "❌ Invalid choice." }
 }
