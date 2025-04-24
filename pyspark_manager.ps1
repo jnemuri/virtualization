@@ -1,124 +1,80 @@
-# PowerShell Script: PySpark Pool Manager (Install/Uninstall)
-# Author: Joseph Nemuri Style 😎
-# Note: To activate the virtual environment in your current session persistently, dot-source this script:
-#   . .\pyspark_pool.ps1
-
-function Command-Exists {
-    param([string]$command)
-    $ErrorActionPreference = "SilentlyContinue"
-    return [bool](Get-Command $command -ErrorAction SilentlyContinue)
+#Check if java and python are installed
+if (-not (Get-Command java -ErrorAction SilentlyContinue)) {
+    Write-Host "Java is not installed. Please install Java to run this script."
+    exit
+}
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "Python is not installed. Please install Python to run this script."
+    exit
+}
+#Check if the script is run from the correct directory
+if ($PSScriptRoot -ne (Get-Location).Path) {
+    Write-Host "Please run this script from the directory where it is located."
+    exit
 }
 
-function Install-PySpark {
-    Write-Host "`n==> Installing PySpark Environment..." -ForegroundColor Cyan
-
-    # === Install Python system-wide ===
-    if (-not (Command-Exists "python")) {
-        $pythonInstaller = "python-3.11.8-amd64.exe"
-        $pythonUrl = "https://www.python.org/ftp/python/3.11.8/$pythonInstaller"
-
-        Write-Host "Downloading Python 3.11 installer..."
-        Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller
-
-        Write-Host "Installing Python to C:\Python311..."
-        Start-Process -Wait -FilePath ".\$pythonInstaller" -ArgumentList `
-            "/quiet InstallAllUsers=1 PrependPath=1 TargetDir=\"C:\Python311\""
-
-        Remove-Item $pythonInstaller
-
-        # Refresh Python path in current session
-        Write-Host "Refreshing Python environment in current session..."
-        $env:PYTHON_HOME = "C:\Python311"
-        $env:PATH += ";C:\Python311;C:\Python311\Scripts"
-    } else {
-        Write-Host "✔ Python is already installed."
+function Install-Environment {
+    #Check if the script is run from the correct directory
+    if ($PSScriptRoot -ne (Get-Location).Path) {
+        Write-Host "Please run this script from the directory where it is located."
+        exit
+    }
+    #Create venv for development
+    python -m venv venv
+    #Activate venv
+    & "$PSScriptRoot\venv\Scripts\Activate.ps1"
+    #Install requirements
+    pip install -r requirements.txt
+}
+function Uninstall-Environment {
+    # Check if the virtual environment is active and deactivate it
+    if ($env:VIRTUAL_ENV) {
+        try {
+            Deactivate
+        } catch {
+            Write-Host "Failed to deactivate the virtual environment. Continuing..."
+        }
     }
 
-    # === Install Apache Spark ===
-    $sparkPath = "C:\spark"
-    $sparkVersion = "3.4.1"
-    $sparkArchive = "spark-$sparkVersion-bin-hadoop3"
-    $downloadUrl = "https://dlcdn.apache.org/spark/spark-$sparkVersion/$sparkArchive.tgz"
-
-    if (-not (Test-Path $sparkPath)) {
-        Write-Host "Downloading Apache Spark $sparkVersion..."
-        Invoke-WebRequest -Uri $downloadUrl -OutFile "spark.tgz"
-
-        Write-Host "Extracting Spark..."
-        tar -xvf "spark.tgz" -C "C:\"
-        Rename-Item -Path "C:\$sparkArchive" -NewName "spark"
-        Remove-Item "spark.tgz"
-    } else {
-        Write-Host "✔ Apache Spark is already installed."
+    # Stop any processes that might be using the virtual environment
+    Get-Process | Where-Object { $_.Path -like "*$PSScriptRoot\venv*" } | ForEach-Object {
+        try {
+            Stop-Process -Id $_.Id -Force
+        } catch {
+            
+            Write-Host "Failed to stop process $($_.Name). Continuing..."
+        }
     }
 
-    # === Set system-wide environment variables ===
-    Write-Host "Setting environment variables..."
-    [System.Environment]::SetEnvironmentVariable("SPARK_HOME", "C:\spark", "Machine")
-    [System.Environment]::SetEnvironmentVariable("PYSPARK_PYTHON", "C:\Python311\python.exe", "Machine")
-    [System.Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\Python311", "Machine")
-
-    $currentPath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-    $requiredPaths = @("C:\spark\bin", "C:\Python311", "C:\Python311\Scripts")
-    foreach ($path in $requiredPaths) {
-        if ($currentPath -notlike "*$path*") { $currentPath += ";$path" }
+    # Remove the virtual environment folder
+    try {
+        Remove-Item -Recurse -Force venv
+        Write-Host "Virtual environment removed successfully."
+    } catch {
+        Write-Host "Failed to remove the virtual environment. Error: $($_.Exception.Message)"
     }
-    [System.Environment]::SetEnvironmentVariable("Path", $currentPath, "Machine")
-    Write-Host "✔ Machine-level environment variables set."
-
-    # === Refresh session environment variables ===
-    Write-Host "Refreshing session environment variables..."
-    $env:SPARK_HOME = "C:\spark"
-    $env:PYSPARK_PYTHON = "C:\Python311\python.exe"
-    $env:PYTHON_HOME = "C:\Python311"
-    $env:PATH = $env:PATH + ";C:\spark\bin;C:\Python311;C:\Python311\Scripts"
-
-    # === Create virtual environment ===
-    if (-not (Test-Path "pyspark_env")) {
-        Write-Host "Creating virtual environment..."
-        C:\Python311\python.exe -m venv pyspark_env
-    }
-
-    # === Activate virtual environment in-script ===
-    Write-Host "Activating virtual environment in this session..."
-    .\pyspark_env\Scripts\Activate.ps1
-
-    # === Install dependencies within virtual environment ===
-    Write-Host "Installing dependencies in virtual environment..."
-    pip install --upgrade pip
-    pip install pyspark pandas jupyter
-
-    Write-Host "`n✅ PySpark pool setup complete and activated in current session." -ForegroundColor Green
-    Write-Host "You can now run 'pyspark' or 'spark-submit your_job.py' directly."
 }
 
-function Uninstall-PySpark {
-    Write-Host "`n==> Uninstalling PySpark Environment..." -ForegroundColor Yellow
-    if (Test-Path "pyspark_env") {
-        Remove-Item -Recurse -Force "pyspark_env"
-        Write-Host "✔ Virtual environment removed."
-    }
-    $sparkPath = "C:\spark"
-    if (Test-Path $sparkPath) {
-        Remove-Item -Recurse -Force $sparkPath
-        Write-Host "✔ Apache Spark directory removed."
-    }
-    Write-Host "ℹ️ Machine-level environment variables remain. You can manually remove SPARK_HOME and PYTHON_HOME if desired."
-    Write-Host "🧹 Uninstallation complete." -ForegroundColor Green
-}
-
-# === Menu ===
-Write-Host "`n=============================="
-Write-Host "     PySpark Pool Manager"
-Write-Host "=============================="
-Write-Host "1) Install PySpark Environment"
-Write-Host "2) Uninstall PySpark Environment"
-Write-Host "3) Exit"
-$choice = Read-Host "Select an option (1-3)"
-
+#Menu for the user to choose the script to run
+Write-Output "Please choose the script to run:"
+Write-Output "1. Install Environment"
+Write-Output "2. Uninstall Environment"
+Write-Output "3. Exit"
+$choice = Read-Host "Enter your choice (1-3)"
 switch ($choice) {
-    "1" { Install-PySpark }
-    "2" { Uninstall-PySpark }
-    "3" { Write-Host "Exiting..."; exit }
-    default { Write-Host "❌ Invalid choice." }
+    1 {
+        Install-Environment
+        Write-Output "Environment installed successfully."
+    }
+    2 {
+        Uninstall-Environment
+        Write-Output "Environment uninstalled successfully."
+    }
+    3 {
+        Write-Output "Exiting..."
+        exit
+    }
+    default {
+        Write-Output "Invalid choice. Please enter a number between 1 and 3."
+    }
 }
