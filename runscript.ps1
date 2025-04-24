@@ -41,7 +41,6 @@ function Uninstall-Environment {
         try {
             Stop-Process -Id $_.Id -Force
         } catch {
-            
             Write-Host "Failed to stop process $($_.Name). Continuing..."
         }
     }
